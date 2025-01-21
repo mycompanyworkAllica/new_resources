@@ -1,0 +1,44 @@
+trigger:
+  branches:
+    include:
+      - master
+
+parameters:
+  - name: TerraformModeNonProd
+    displayName: "Apply or plan in Terraform to Non_Prod"
+    type: string
+    default: plan
+    values:
+      - plan
+      - apply
+      - "skip"
+  - name: TerraformModeProd
+    displayName: "Apply or plan in Terraform to Prod"
+    type: string
+    default: plan
+    values:
+      - plan
+      - apply
+      - "skip"
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Allica-Infra/Pipelines
+      ref: master
+
+stages:
+- template: Terraform/main.yml@templates
+  parameters:
+    env: "NON_PROD"
+    TerraformMode: "${{ parameters.TerraformModeNonProd }}"
+    vargroup: "NPKV"
+    pool:  "abl-nonprod-pipelines"
+
+- template: Terraform/main.yml@templates
+  parameters:
+    env: "PROD"
+    TerraformMode: "${{ parameters.TerraformModeProd }}"
+    vargroup: "PKV"
+    pool:  "abl-prod-pipelines"
