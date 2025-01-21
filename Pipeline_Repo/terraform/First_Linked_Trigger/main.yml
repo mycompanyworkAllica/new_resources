@@ -1,0 +1,93 @@
+parameters:
+  - name: TerraformMode
+    displayName: "Apply or plan in Terraform"
+    type: string
+    default: plan
+    values:
+      - plan
+      - apply
+      - "skip"
+  - name: env
+    type: string
+  - name: vargroup
+    type: string
+  - name: pool
+    type: string
+  - name: skip_approval
+    type: boolean
+    default: false
+  - name: targeted
+    type: string
+    default: "NO_TARGET"
+  - name: dependsOn
+    type: object
+    default: []
+  - name: environment_variables
+    type: object
+    default:
+      INIT_ENV1: main1
+      INIT_ENV2: main2
+
+stages:
+  - stage: "Plan_${{parameters.env}}"
+    dependsOn: "${{ parameters.dependsOn }}"
+    displayName: "${{ parameters.env }} Plan"
+    condition: or(eq('${{ parameters.TerraformMode }}', 'plan'),eq('${{ parameters.TerraformMode }}', 'apply'))
+    pool:
+      name: ${{ parameters.pool }}
+      vmImage: "Ubuntu-latest"
+      container: "ablnonprodacr.azurecr.io/azure-devops-image-ubuntu:20.04"
+    variables:
+      - group: ${{ parameters.vargroup }}
+      - group: Elastic_Prod
+    jobs:
+      - job: TF_Plan
+        displayName: "${{ parameters.env }} Plan"
+        steps:
+          - template: terraformPlan.yaml
+            parameters:
+              env: "${{ parameters.env }}"
+              targeted: "${{ parameters.targeted }}"
+              environment_variables: ${{ parameters.environment_variables }}
+
+  - stage: "Apply_${{parameters.env}}"
+    dependsOn: "Plan_${{parameters.env}}"
+    displayName: "${{ parameters.env }} Apply"
+    condition: and(
+      eq(dependencies.Plan_${{parameters.env}}.result,'Succeeded'),
+      eq('${{ parameters.TerraformMode }}', 'apply'),
+      eq( stageDependencies.Plan_${{parameters.env}}.outputs['TF_Plan.setvar.HAS_DESTROY_CHANGES'], 'true')
+      )
+    pool:
+      name: ${{ parameters.pool }}
+      vmImage: "Ubuntu-latest"
+      container: "ablnonprodacr.azurecr.io/azure-devops-image-ubuntu:20.04"
+    variables:
+      - group: ${{ parameters.vargroup }}
+      - group: Elastic_Prod
+    jobs:
+      - template: terraformvalidation.yaml
+        parameters:
+          env: "${{ parameters.env }}"
+          skip_approval: "${{ parameters.skip_approval }}"
+
+      - job: TF_Apply
+        displayName: "${{ parameters.env }} Terraform Apply"
+        dependsOn: "waitForValidation"
+        condition: |
+          or(
+            and(
+              in(dependencies.waitForValidation.result, 'Skipped'),
+              eq('${{ parameters.skip_approval }}', true)
+            ),
+            and(
+              in(dependencies.waitForValidation.result, 'Succeeded'),
+              eq('${{ parameters.skip_approval }}', false)
+            )
+          )
+        steps:
+          - template: terraformApply.yaml
+            parameters:
+              env: "${{ parameters.env }}"
+              targeted: "${{ parameters.targeted }}"
+              environment_variables: ${{ parameters.environment_variables }}
