@@ -1,0 +1,126 @@
+---
+trigger: none
+
+parameters:
+  - name: ADD_SB_NAME
+    displayName: "Enter Service Bus name"
+    type: string
+
+  - name: ADD_SB_OWNER
+    displayName: "Enter Service Bus owner name"
+    type: string
+
+  - name: ADD_SB_PROJECT
+    displayName: "Select Service Bus project"
+    type: string
+    default: "Allica_Web"
+    values:
+      - Allica-Infra
+      - Allica_Web
+
+  - name: ADD_SB_ENV
+    displayName: "Select Service Bus environment"
+    type: string
+    default: "dev"
+    values:
+      - dev
+      - prep
+      - prod
+
+  - name: ADD_SB_TEMPLATE
+    displayName: "Select Service Bus template"
+    type: string
+    default: "standard"
+    values:
+      - standard
+
+  - name: TICKET_NUMBER
+    displayName: "Enter PET Jira ticket number (e.g. PET-123)"
+    type: string
+    default: "PET-666"
+
+  - name: IGNORE_ADD
+    displayName: "Dont add anything just run the terraform"
+    type: boolean
+    default: false
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Allica-Infra/pipelines
+      ref: master
+
+stages:
+  - template: Terraform/main.yml@templates
+    parameters:
+      TerraformMode: "apply"
+      env: "add_service_bus"
+      pool: "abl-prod-pipelines"
+      skip_approval: true
+      vargroup: "PKV"
+      environment_variables:
+        ADD_SB_ENV: ${{ parameters.ADD_SB_ENV }}
+        ADD_SB_IGNORE: ${{ parameters.IGNORE_ADD }}
+        ADD_SB_NAME: ${{ parameters.ADD_SB_NAME }}
+        ADD_SB_OWNER: ${{ parameters.ADD_SB_OWNER }}
+        ADD_SB_PROJECT: ${{ parameters.ADD_SB_PROJECT }}
+        ADD_SB_TEMPLATE: ${{ parameters.ADD_SB_TEMPLATE }}
+        ADD_SB_TICKET_NUMBER: ${{ parameters.TICKET_NUMBER }}
+
+  - stage: "Create_PR"
+    displayName: "Create PR for ${{ parameters.TICKET_NUMBER }}"
+    pool:
+      name: "Azure Pipelines"
+      vmImage: "windows-2022"
+    jobs:
+      - job: Create_PR
+        displayName: "Create_PR"
+        steps:
+          - task: CreatePullRequest@1
+            condition: and(succeeded(), not(${{ parameters.IGNORE_ADD }}))
+            inputs:
+              autoComplete: true
+              description: |
+                # Pull Request Template
+
+                ## Description
+                Provide a concise and clear summary of the change to help the reviewer understand the purpose of this modification.
+
+                **<Insert description here>**
+
+                ## Type of Change
+                - [ ] **New resource**
+                - [ ] **Update to an existing resource**
+                - [ ] **Other**
+
+                ---
+
+                # Author Checklist
+
+                ### Deployment Checklist
+                - [ ] **Terraform Pipeline:** Ensure that resources have been deployed before merging into master.
+                - [ ] **Other:** If applicable, include a link to the relevant pipeline. If no pipeline exists, provide screenshots.
+                - [ ] **N/A**
+
+                ---
+
+                # Reviewer Checklist
+
+                - [ ] **Clear Description:** Confirm that the change description is easy to understand.
+                - [ ] **Formatted Correctly:** Check that the pull request follows our formatting guidelines.
+                - [ ] **Naming Standards:** Verify that the changes adhere to our naming standards. ([Documentation](https://eldonhouse.atlassian.net/wiki/spaces/PE/pages/3450503198/Naming+Conventions+Repository+Folder+Layout))
+
+                ### Deployment Checklist
+                - [ ] **Terraform:** Review the Terraform plan, ensuring that expected changes are understood.
+                - [ ] **Other:** Review changes and confirm understanding.
+                - [ ] **N/A**
+
+              isDraft: true
+              mergeStrategy: "squash"
+              repoType: "Azure DevOps"
+              repositorySelector: "currentBuild"
+              reviewers: "DevOps Team"
+              sourceBranch: "${{ parameters.TICKET_NUMBER }}-autosb$(Build.BuildId)"
+              targetBranch: "master"
+              title: "${{ parameters.TICKET_NUMBER }}"
